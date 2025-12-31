@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Quiz Application</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+:root {
+    --primary:#6c63ff;
+    --bg:#eef1ff;
+    --card:#ffffff;
+    --text:#222;
+}
+
+body.dark {
+    --card:#1e1e1e;
+    --text:#ffffff;
+    --bg:#121212; /* Full screen dark background */
+}
+
+* { box-sizing:border-box; font-family:Segoe UI,sans-serif; }
+
+body {
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    transition: background 0.3s, color 0.3s;
+}
+
+/* Category backgrounds */
+body.general { --bg: linear-gradient(135deg,#e0e7ff,#f5f7ff); }
+body.science { --bg: linear-gradient(135deg,#dbeafe,#eff6ff); }
+body.cs { --bg: linear-gradient(135deg,#ede9fe,#f5f3ff); }
+body.sports { --bg: linear-gradient(135deg,#dcfce7,#f0fdf4); }
+body.history { --bg: linear-gradient(135deg,#fef3c7,#fffbeb); }
+body.entertainment { --bg: linear-gradient(135deg,#ffe4e6,#fff1f2); }
+
+/* Dark mode overrides categories */
+body.dark.general,
+body.dark.science,
+body.dark.cs,
+body.dark.sports,
+body.dark.history,
+body.dark.entertainment {
+    --bg:#121212;
+}
+
+.navbar {
+    background:var(--primary);
+    color:white;
+    padding:10px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+
+.navbar button {
+    margin-left:5px;
+    padding:6px 10px;
+    border:none;
+    border-radius:6px;
+    cursor:pointer;
+}
+
+.container {
+    max-width:600px;
+    margin:20px auto;
+    background:var(--card);
+    padding:20px;
+    border-radius:14px;
+    box-shadow:0 10px 30px rgba(0,0,0,.2);
+    transition: background 0.3s, color 0.3s;
+}
+
+button {
+    background:var(--primary);
+    color:white;
+    border:none;
+    border-radius:8px;
+    padding:10px;
+    cursor:pointer;
+}
+
+input {
+    width:100%;
+    padding:10px;
+    margin:10px 0;
+    border-radius:8px;
+    border:1px solid #ccc;
+}
+
+.center { text-align:center; }
+
+.progress {
+    height:8px;
+    background:#ddd;
+    border-radius:4px;
+    overflow:hidden;
+    margin:10px 0;
+}
+
+.progress-bar {
+    height:100%;
+    background:var(--primary);
+}
+
+.timer {
+    text-align:right;
+    font-weight:bold;
+    margin-bottom:10px;
+}
+
+.options button {
+    width:100%;
+    margin:6px 0;
+    background:none;
+    border:2px solid var(--primary);
+    color:var(--text);
+    transition: all 0.2s;
+}
+
+.options button.correct { background:#4caf50; color:white; }
+.options button.wrong { background:#f44336; color:white; }
+
+.leaderboard .row {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    background:rgba(0,0,0,.05);
+    padding:8px;
+    border-radius:6px;
+    margin:5px 0;
+}
+</style>
+</head>
+
+<body class="general">
+
+<div class="navbar" id="navbar" style="display:none">
+<span id="navUser"></span>
+<div>
+<button onclick="home()">Home</button>
+<button onclick="showLeaderboard()">Leaderboard</button>
+<button onclick="toggleDark()">🌙</button>
+<button onclick="switchUser()">Switch User</button>
+<button onclick="logout()">Logout</button>
+</div>
+</div>
+
+<div class="container" id="app"></div>
+
+<script>
+const categories = {
+9:{name:"General Knowledge",bg:"general"},
+18:{name:"Computer Science",bg:"cs"},
+21:{name:"Sports",bg:"sports"},
+23:{name:"History",bg:"history"},
+17:{name:"Science",bg:"science"},
+12:{name:"Music",bg:"entertainment"},
+11:{name:"Movies",bg:"entertainment"}
+};
+
+let user=null, questions=[], index=0, score=0, category=9;
+let time=15, timer;
+
+const app=document.getElementById("app");
+const navbar=document.getElementById("navbar");
+const navUser=document.getElementById("navUser");
+
+function toggleDark(){
+    document.body.classList.toggle("dark");
+}
+
+function loginScreen(){
+    navbar.style.display="none";
+    app.innerHTML=`
+    <h2 class="center">Enter Username</h2>
+    <input id="username" placeholder="Username">
+    <button onclick="login()">Login</button>`;
+}
+
+function login(){
+    const name=document.getElementById("username").value.trim();
+    if(!name) return alert("Enter username");
+    user=name;
+    saveUser(name);
+    navbar.style.display="flex";
+    navUser.innerText="👤 "+user;
+    home();
+}
+
+function home(){
+    clearInterval(timer);
+    app.innerHTML=`
+    <h2 class="center">Welcome, ${user}</h2>
+    <h3>Select Category</h3>
+    ${Object.entries(categories).map(([id,c])=>
+    `<button style="width:100%;margin:5px" onclick="startQuiz(${id})">${c.name}</button>`).join("")}`;
+}
+
+async function startQuiz(cat){
+    category=cat;
+    document.body.className=categories[cat].bg + (document.body.classList.contains('dark') ? ' dark' : '');
+    index=0; score=0;
+    const res=await fetch(`https://opentdb.com/api.php?amount=5&category=${cat}&type=multiple`);
+    const data=await res.json();
+    questions=data.results.map(q=>{
+        const opts=[...q.incorrect_answers,q.correct_answer].sort(()=>Math.random()-0.5);
+        return {q:decode(q.question),opts:opts.map(decode),ans:decode(q.correct_answer)};
+    });
+    showQuestion();
+}
+
+function showQuestion(){
+    clearInterval(timer);
+    time=15;
+    const q=questions[index];
+    app.innerHTML=`
+    <div class="timer">⏱ Time Left: <span id="time">${time}</span>s</div>
+    <div class="progress">
+      <div class="progress-bar" style="width:${index/questions.length*100}%"></div>
+    </div>
+    <h3>${q.q}</h3>
+    <div class="options">
+    ${q.opts.map(o=>`<button onclick="answer(this,'${o}')">${o}</button>`).join("")}
+    </div>
+    <button style="background:#888;margin-top:10px" onclick="confirmLeave()">Leave Quiz</button>
+    <button style="margin-top:10px" onclick="confirmFinish()">Finish Quiz</button>`;
+
+    timer=setInterval(()=>{
+        time--;
+        document.getElementById("time").innerText=time;
+        if(time===0){
+            clearInterval(timer);
+            next();
+        }
+    },1000);
+}
+
+function answer(btn,sel){
+    clearInterval(timer);
+    document.querySelectorAll(".options button").forEach(b=>b.disabled=true);
+    if(sel===questions[index].ans){ btn.classList.add("correct"); score++; }
+    else{
+        btn.classList.add("wrong");
+        [...document.querySelectorAll(".options button")]
+        .find(b=>b.innerText===questions[index].ans).classList.add("correct");
+    }
+    setTimeout(next,700);
+}
+
+function next(){
+    index<questions.length-1?(index++,showQuestion()):endQuiz();
+}
+
+function confirmLeave(){
+    if(confirm("Your progress will be lost. Leave quiz?")) home();
+}
+
+function confirmFinish(){
+    if(confirm("Submit quiz now?")) endQuiz();
+}
+
+function endQuiz(){
+    clearInterval(timer);
+    saveScore(user,score);
+    app.innerHTML=`
+    <h2 class="center">Quiz Finished 🎉</h2>
+    <p class="center">Score: ${score}/${questions.length}</p>
+    <button onclick="startQuiz(${category})">Restart</button>
+    <button onclick="home()">Home</button>`;
+}
+
+function showLeaderboard(){
+    clearInterval(timer);
+    const users=JSON.parse(localStorage.getItem("users")||"[]");
+    const scores=JSON.parse(localStorage.getItem("scores")||"[]");
+
+    const board=users.map(u=>{
+        const s=scores.filter(x=>x.name===u).map(x=>x.score);
+        return {name:u,best:s.length?Math.max(...s):0};
+    }).sort((a,b)=>b.best-a.best);
+
+    app.innerHTML=`
+    <h2 class="center">Leaderboard</h2>
+    <div class="leaderboard">
+    ${board.map((u,i)=>`
+    <div class="row">
+        <span>${i+1}. ${u.name} — ${u.best}</span>
+        <button style="background:#f44336;padding:5px 8px"
+            onclick="deleteUser('${u.name}')">🗑️</button>
+    </div>`).join("")}
+    </div>`;
+}
+
+function deleteUser(name){
+    if(!confirm(`Delete ${name} from leaderboard?`)) return;
+    let users=JSON.parse(localStorage.getItem("users")||"[]").filter(u=>u!==name);
+    let scores=JSON.parse(localStorage.getItem("scores")||"[]").filter(s=>s.name!==name);
+    localStorage.setItem("users",JSON.stringify(users));
+    localStorage.setItem("scores",JSON.stringify(scores));
+    showLeaderboard();
+}
+
+function switchUser(){
+    if(confirm("Switch user?")) loginScreen();
+}
+
+function logout(){
+    if(confirm("Logout?")){
+        user=null;
+        navbar.style.display="none";
+        loginScreen();
+    }
+}
+
+function saveUser(name){
+    const users=JSON.parse(localStorage.getItem("users")||"[]");
+    if(!users.includes(name)){ users.push(name); localStorage.setItem("users",JSON.stringify(users)); }
+}
+
+function saveScore(name,score){
+    const scores=JSON.parse(localStorage.getItem("scores")||"[]");
+    scores.push({name,score});
+    localStorage.setItem("scores",JSON.stringify(scores));
+}
+
+function decode(t){
+    const e=document.createElement("textarea");
+    e.innerHTML=t;
+    return e.value;
+}
+
+loginScreen();
+</script>
+
+</body>
+</html>
